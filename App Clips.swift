@@ -165,3 +165,19 @@ To implement an App Clip in a SwiftUI iOS app:
 5. Deploy and configure the App Clip in **App Store Connect** for public release.
 
 This allows you to provide a streamlined user experience for users who don’t want to download your full app but still need to perform certain tasks quickly using the App Clip.
+
+### Using Ephemeral Notifications
+func requestNotificationAuthorization() {
+    //1
+    let notifCenter = UNUserNotificationCenter.current()
+    notifCenter.getNotificationSettings { setting in
+        //2
+        if setting.authorizationStatus == .ephemeral {
+            return
+        }
+        //3
+        notifCenter.requestAuthorization(options: .alert) { result, error  in
+            print("""Authorization Request result: \(result) \- \(String(describing: error))""")
+        }
+    }
+}
