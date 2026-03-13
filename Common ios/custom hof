@@ -1,0 +1,251 @@
+In Swift, **Higher-Order Functions (HOF)** are functions that either:
+
+1. **Take another function/closure as a parameter**, or
+2. **Return a function/closure**
+
+Swift already has built-in HOFs like `map`, `filter`, and `reduce`. But in interviews (especially for **senior iOS roles**), you may be asked to **implement your own custom higher-order functions**.
+
+---
+
+# 1. Custom `map` Implementation
+
+### Goal
+
+Transform each element in a collection.
+
+### Example
+
+```swift
+extension Array {
+
+    func customMap<T>(_ transform: (Element) -> T) -> [T] {
+        var result: [T] = []
+
+        for element in self {
+            result.append(transform(element))
+        }
+
+        return result
+    }
+}
+```
+
+### Usage
+
+```swift
+let numbers = [1,2,3,4]
+
+let squared = numbers.customMap { $0 * $0 }
+
+print(squared)
+```
+
+Output
+
+```
+[1,4,9,16]
+```
+
+### Explanation
+
+* `transform` is a **closure parameter**
+* `Element` → original type
+* `T` → transformed type
+
+---
+
+# 2. Custom `filter`
+
+### Goal
+
+Return elements that satisfy a condition.
+
+```swift
+extension Array {
+
+    func customFilter(_ isIncluded: (Element) -> Bool) -> [Element] {
+
+        var result: [Element] = []
+
+        for element in self {
+            if isIncluded(element) {
+                result.append(element)
+            }
+        }
+
+        return result
+    }
+}
+```
+
+### Usage
+
+```swift
+let numbers = [1,2,3,4,5]
+
+let evenNumbers = numbers.customFilter { $0 % 2 == 0 }
+
+print(evenNumbers)
+```
+
+Output
+
+```
+[2,4]
+```
+
+---
+
+# 3. Custom `reduce`
+
+### Goal
+
+Combine all elements into a single value.
+
+```swift
+extension Array {
+
+    func customReduce<Result>(
+        _ initial: Result,
+        _ next: (Result, Element) -> Result
+    ) -> Result {
+
+        var result = initial
+
+        for element in self {
+            result = next(result, element)
+        }
+
+        return result
+    }
+}
+```
+
+### Usage
+
+```swift
+let numbers = [1,2,3,4]
+
+let sum = numbers.customReduce(0) { result, element in
+    result + element
+}
+
+print(sum)
+```
+
+Output
+
+```
+10
+```
+
+---
+
+# 4. Custom HOF Example (Real Interview Style)
+
+Example: **retry function for network calls**
+
+```swift
+func retry(
+    times: Int,
+    task: () throws -> Void
+) rethrows {
+
+    var attempts = 0
+
+    while attempts < times {
+        do {
+            try task()
+            return
+        } catch {
+            attempts += 1
+            if attempts == times {
+                throw error
+            }
+        }
+    }
+}
+```
+
+### Usage
+
+```swift
+try retry(times: 3) {
+    print("Calling API")
+}
+```
+
+This is a **custom higher-order function** because it **takes a closure**.
+
+---
+
+# 5. Another Senior-Level Example (Timing HOF)
+
+```swift
+func measureExecutionTime(_ block: () -> Void) {
+
+    let start = CFAbsoluteTimeGetCurrent()
+
+    block()
+
+    let end = CFAbsoluteTimeGetCurrent()
+
+    print("Execution time:", end - start)
+}
+```
+
+Usage:
+
+```swift
+measureExecutionTime {
+    for i in 0...100000 {
+        print(i)
+    }
+}
+```
+
+---
+
+# Key Interview Points
+
+You should mention:
+
+**Higher Order Function characteristics**
+
+• Takes function as parameter
+• Returns function
+• Uses closures
+• Enables functional programming
+
+Examples in Swift:
+
+```
+map
+filter
+reduce
+flatMap
+compactMap
+sorted
+forEach
+```
+
+---
+
+# Senior iOS Interview Twist
+
+Sometimes they ask:
+
+**Implement `map` without using `map`.**
+
+Answer pattern:
+
+```
+1. Iterate
+2. Apply transform closure
+3. Append result
+4. Return new array
+```
+
+---
+
+If you want, I can also show **5 advanced custom HOFs that impress FAANG / product company interviewers (like eBay, Uber, Stripe)**.
