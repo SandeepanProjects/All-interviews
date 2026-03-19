@@ -1,590 +1,529 @@
-//
-//  Token Rotation.swift
-//  
-//
-//  Created by Apple on 29/01/26.
-//
-
-import Foundation
-
-Alright, let’s go **production-grade** 💪
-Below is **realistic Swift code for token rotation** as used in **banking / fintech iOS apps**, using **modern concurrency (actors)**, **Keychain**, and **safe refresh synchronization**.
-
-I’ll keep it **clean, layered, and interview-ready**.
+Token rotation in iOS (including SwiftUI apps) is a **security mechanism** where your app periodically replaces expired or soon-to-expire access tokens with new ones using a refresh token. This ensures users stay authenticated **without repeatedly logging in**, while also reducing security risks.
 
 ---
 
-# 🧱 Architecture Overview
+## 🔑 Core Concepts
+
+### 1. Access Token
+
+* Short-lived (e.g., 15–60 minutes)
+* Sent with API requests (Authorization header)
+* If leaked, damage is limited due to short expiry
+
+### 2. Refresh Token
+
+* Long-lived (days/weeks)
+* Used to request a new access token
+* Stored securely (e.g., Keychain)
+
+---
+
+## 🔄 Token Rotation Flow
+
+1. User logs in → server returns:
+
+   * accessToken
+   * refreshToken
+
+2. App makes API requests using accessToken
+
+3. When accessToken expires:
+
+   * App sends refreshToken to server
+
+4. Server validates refreshToken and returns:
+
+   * new accessToken
+   * (sometimes) new refreshToken → **this is rotation**
+
+5. App updates stored tokens
+
+---
+
+## ⚠️ Why Token Rotation Matters
+
+* Prevents reuse of stolen refresh tokens
+* Each refresh invalidates the previous refresh token
+* Adds an extra layer of security
+
+---
+
+## 🧠 Architecture in SwiftUI
+
+You typically structure it like this:
 
 ```
-APIClient
-   │
-   ▼
-TokenManager (actor)
-   │
-   ├── Access Token (short-lived)
-   ├── Refresh Token (rotating, single-use)
-   └── Refresh Lock (prevents multiple refresh calls)
+SwiftUI View
+   ↓
+ViewModel (MVVM)
+   ↓
+AuthManager / TokenManager
+   ↓
+Network Layer
 ```
 
 ---
 
-# 1️⃣ Token Model
+## 🧱 Implementation Breakdown
+
+### 1. Token Storage (Keychain)
 
 ```swift
-struct AuthTokens: Codable, Equatable {
-    let accessToken: String
-    let refreshToken: String
-    let expiresAt: Date
+final class TokenStorage {
+    
+    static let shared = TokenStorage()
+    
+    private init() {}
+    
+    func save(accessToken: String, refreshToken: String) {
+        KeychainHelper.save("accessToken", value: accessToken)
+        KeychainHelper.save("refreshToken", value: refreshToken)
+    }
+    
+    func getAccessToken() -> String? {
+        KeychainHelper.get("accessToken")
+    }
+    
+    func getRefreshToken() -> String? {
+        KeychainHelper.get("refreshToken")
+    }
 }
 ```
 
 ---
 
-# 2️⃣ Keychain Storage (Secure & Simple)
+### 2. Auth Manager (Handles Rotation)
 
 ```swift
-protocol TokenStorage {
-    func save(_ tokens: AuthTokens) throws
-    func load() throws -> AuthTokens?
-    func clear() throws
-}
-```
-
-### Keychain implementation (simplified)
-
-```swift
-final class KeychainTokenStorage: TokenStorage {
-
-    private let key = "auth.tokens"
-
-    func save(_ tokens: AuthTokens) throws {
-        let data = try JSONEncoder().encode(tokens)
-
-        let query: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrAccount: key,
-            kSecValueData: data,
-            kSecAttrAccessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
-
-        SecItemDelete(query as CFDictionary)
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw KeychainError.saveFailed
+actor AuthManager {
+    
+    static let shared = AuthManager()
+    
+    private var isRefreshing = false
+    
+    func getValidAccessToken() async throws -> String {
+        
+        if let token = TokenStorage.shared.getAccessToken(),
+           !isTokenExpired(token) {
+            return token
         }
+        
+        return try await refreshAccessToken()
     }
-
-    func load() throws -> AuthTokens? {
-        let query: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrAccount: key,
-            kSecReturnData: true,
-            kSecMatchLimit: kSecMatchLimitOne
-        ]
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-        guard status == errSecSuccess,
-              let data = result as? Data else {
-            return nil
+    
+    private func refreshAccessToken() async throws -> String {
+        
+        guard let refreshToken = TokenStorage.shared.getRefreshToken() else {
+            throw AuthError.noRefreshToken
         }
-
-        return try JSONDecoder().decode(AuthTokens.self, from: data)
-    }
-
-    func clear() throws {
-        let query: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrAccount: key
-        ]
-        SecItemDelete(query as CFDictionary)
-    }
-}
-
-enum KeychainError: Error {
-    case saveFailed
-}
-```
-
----
-
-# 3️⃣ TokenManager (🔥 핵심 – Actor)
-
-This guarantees:
-
-* ✅ **Single refresh at a time**
-* ✅ **No race conditions**
-* ✅ **Safe concurrent API calls**
-
-```swift
-actor TokenManager {
-
-    private let storage: TokenStorage
-    private let authAPI: AuthAPI
-
-    private var tokens: AuthTokens?
-    private var refreshTask: Task<AuthTokens, Error>?
-
-    init(storage: TokenStorage, authAPI: AuthAPI) {
-        self.storage = storage
-        self.authAPI = authAPI
-        self.tokens = try? storage.load()
-    }
-
-    // MARK: - Public
-    func validAccessToken() async throws -> String {
-        if let tokens, !isExpired(tokens) {
-            return tokens.accessToken
-        }
-
-        return try await refreshTokens().accessToken
-    }
-
-    func clearTokens() async throws {
-        tokens = nil
-        try storage.clear()
-    }
-
-    // MARK: - Refresh Logic
-    private func refreshTokens() async throws -> AuthTokens {
-
-        // 🔒 If refresh already running, await it
-        if let task = refreshTask {
-            return try await task.value
-        }
-
-        let task = Task<AuthTokens, Error> {
-            guard let refreshToken = tokens?.refreshToken else {
-                throw AuthError.notAuthenticated
-            }
-
-            let newTokens = try await authAPI.refreshToken(refreshToken)
-
-            self.tokens = newTokens
-            try self.storage.save(newTokens)
-            return newTokens
-        }
-
-        refreshTask = task
-
-        defer { refreshTask = nil }
-
-        return try await task.value
-    }
-
-    private func isExpired(_ tokens: AuthTokens) -> Bool {
-        tokens.expiresAt <= Date().addingTimeInterval(30) // buffer
-    }
-}
-
-enum AuthError: Error {
-    case notAuthenticated
-}
-```
-
----
-
-# 4️⃣ Auth API (Refresh Endpoint)
-
-```swift
-protocol AuthAPI {
-    func refreshToken(_ token: String) async throws -> AuthTokens
-}
-```
-
-### Example implementation
-
-```swift
-final class AuthAPIClient: AuthAPI {
-
-    func refreshToken(_ token: String) async throws -> AuthTokens {
-        var request = URLRequest(url: URL(string: "https://api.bank.com/auth/refresh")!)
-        request.httpMethod = "POST"
-        request.httpBody = try JSONEncoder().encode([
-            "refresh_token": token
-        ])
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let (data, _) = try await URLSession.shared.data(for: request)
-        return try JSONDecoder().decode(AuthTokens.self, from: data)
+        
+        let newTokens = try await APIService.refreshToken(refreshToken)
+        
+        TokenStorage.shared.save(
+            accessToken: newTokens.accessToken,
+            refreshToken: newTokens.refreshToken
+        )
+        
+        return newTokens.accessToken
     }
 }
 ```
 
 ---
 
-# 5️⃣ API Client Using Token Rotation
+### 3. Network Layer (Auto Retry)
 
 ```swift
 final class APIClient {
-
-    private let tokenManager: TokenManager
-
-    init(tokenManager: TokenManager) {
-        self.tokenManager = tokenManager
-    }
-
-    func send(_ request: URLRequest) async throws -> Data {
-        var request = request
-
-        let token = try await tokenManager.validAccessToken()
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        if let http = response as? HTTPURLResponse, http.statusCode == 401 {
-            // 🔄 Retry once after forced refresh
-            let newToken = try await tokenManager.validAccessToken()
-            request.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
-            return try await URLSession.shared.data(for: request).0
+    
+    func request<T: Decodable>(_ endpoint: Endpoint) async throws -> T {
+        
+        do {
+            let token = try await AuthManager.shared.getValidAccessToken()
+            return try await performRequest(endpoint, token: token)
+            
+        } catch {
+            
+            // If unauthorized, try refreshing once
+            if case APIError.unauthorized = error {
+                
+                let newToken = try await AuthManager.shared.refreshAccessToken()
+                return try await performRequest(endpoint, token: newToken)
+            }
+            
+            throw error
         }
-
-        return data
     }
 }
 ```
 
 ---
 
-# 6️⃣ What Makes This **Banking-Grade** ✅
-
-✔ Short-lived access tokens
-✔ **Rotating refresh tokens**
-✔ Keychain with `ThisDeviceOnly`
-✔ Actor-based synchronization
-✔ No multiple refresh calls
-✔ Safe retry on 401
-
----
-
-# 🚫 Common Anti-Patterns (Avoid These)
-
-❌ Refresh token stored in memory only
-❌ Multiple refresh calls in parallel
-❌ Long-lived access tokens
-❌ Silent refresh without server invalidation
-
----
-
-# 🧠 Interview Power Answer
-
-> “I implement token rotation using an actor-based TokenManager that synchronizes refresh requests, stores tokens securely in Keychain, and rotates refresh tokens on every renewal to prevent replay attacks.”
-
----
-
-If you want next:
-
-* 🧪 **Unit tests for TokenManager**
-* 🔁 **Retry + exponential backoff**
-* 🔐 **Device-bound refresh tokens**
-* 🧵 **Combine-based version**
-
-Say the word 🚀
-
-
-This is a **core security concept**, especially for **banking & fintech iOS apps**. I’ll explain it **clearly**, **practically**, and **from an iOS-architecture + interview perspective**.
-
----
-
-# 🔐 What is Token Rotation? (Plain English)
-
-**Token rotation** means:
-
-> *Regularly replacing access tokens with new ones so that stolen tokens become useless very quickly.*
-
-In banking apps, **no token should live “too long”**.
-
----
-
-# 🧠 Why banking apps MUST use token rotation
-
-Banking apps deal with:
-
-* 💰 Money
-* 🆔 Identity
-* 🧾 Transactions
-
-Threats:
-
-* Jailbroken devices
-* Memory dumps
-* MITM attacks
-* Stolen refresh tokens
-* Replay attacks
-
-👉 **Short-lived access tokens + rotating refresh tokens** drastically reduce blast radius.
-
----
-
-# 🧱 Typical Banking Auth Architecture
-
-```
-┌─────────┐        Access Token (5–10 min)
-│  iOS App│ ────────────────────────────▶ API
-│         │
-│         │        Refresh Token (rotating)
-│         │ ◀──────────────────────────── Auth Server
-└─────────┘
-```
-
-### Tokens used:
-
-| Token         | Lifetime   | Stored where                          |
-| ------------- | ---------- | ------------------------------------- |
-| Access Token  | 5–10 mins  | Memory / Keychain                     |
-| Refresh Token | Single-use | Keychain (Secure Enclave if possible) |
-
----
-
-# 🔄 What is **Token Rotation** exactly?
-
-Every time you refresh:
-
-1️⃣ Client sends **Refresh Token A**
-2️⃣ Server:
-
-* Invalidates Refresh Token A ❌
-* Issues:
-
-  * New Access Token
-  * New Refresh Token B ✅
-    3️⃣ Client stores Refresh Token B
-    4️⃣ Token A is now **dead forever**
-
-📌 If Token A is reused → **security breach detected**
-
----
-
-# ❌ What happens WITHOUT rotation (bad)
-
-```
-Refresh Token R1 → valid for months
-Attacker steals R1
-Attacker can refresh forever 😨
-```
-
----
-
-# ✅ With rotation (good)
-
-```
-R1 → used → replaced by R2
-Attacker tries R1 → ❌ revoked
-```
-
-**Even if stolen → only usable once**
-
----
-
-# 🧪 Real Banking-grade Flow (Step-by-step)
-
-### 1️⃣ Login
-
-```json
-{
-  "access_token": "AT_1",
-  "refresh_token": "RT_1",
-  "expires_in": 300
-}
-```
-
----
-
-### 2️⃣ Normal API call
-
-```http
-Authorization: Bearer AT_1
-```
-
----
-
-### 3️⃣ Access token expires (401)
-
-iOS app:
-
-```http
-POST /auth/refresh
-refresh_token=RT_1
-```
-
----
-
-### 4️⃣ Server response
-
-```json
-{
-  "access_token": "AT_2",
-  "refresh_token": "RT_2"
-}
-```
-
-❌ RT_1 invalid
-✅ RT_2 stored securely
-
----
-
-### 5️⃣ Replay attack attempt
-
-```http
-POST /auth/refresh
-refresh_token=RT_1
-```
-
-🚨 Server detects token reuse
-🚨 Session revoked
-🚨 User logged out everywhere
-
----
-
-# 📱 iOS Implementation Strategy
-
-## 1️⃣ Secure Storage (MANDATORY)
+### 4. SwiftUI Usage
 
 ```swift
-Keychain (ThisDeviceOnly)
-```
-
-Best practices:
-
-* `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
-* Never store tokens in UserDefaults ❌
-* Avoid keeping refresh token in memory
-
----
-
-## 2️⃣ Token Manager (Single Source of Truth)
-
-```swift
-actor TokenManager {
-
-    private var accessToken: String?
-    private var refreshToken: String?
-
-    func accessToken() async throws -> String {
-        if isExpired(accessToken) {
-            try await rotateTokens()
+@MainActor
+final class ProfileViewModel: ObservableObject {
+    
+    @Published var user: User?
+    
+    func loadProfile() async {
+        do {
+            user = try await APIClient().request(.profile)
+        } catch {
+            print("Error: \(error)")
         }
-        return accessToken!
-    }
-
-    private func rotateTokens() async throws {
-        // call /refresh
-        // update tokens atomically
     }
 }
 ```
 
-✅ Actor = race-condition safe
-✅ One refresh at a time
-
----
-
-## 3️⃣ Networking Layer Integration
-
 ```swift
-func authorizedRequest(_ request: URLRequest) async throws -> URLRequest {
-    let token = try await tokenManager.accessToken()
-    var req = request
-    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    return req
+struct ProfileView: View {
+    
+    @StateObject private var vm = ProfileViewModel()
+    
+    var body: some View {
+        Text(vm.user?.name ?? "Loading...")
+            .task {
+                await vm.loadProfile()
+            }
+    }
 }
 ```
 
 ---
 
-## 4️⃣ Handling Multiple Simultaneous 401s
+## 🔐 Best Practices
 
-**Classic banking bug** 👇
+* Store tokens in **Keychain**, NOT UserDefaults
+* Use **actor** to avoid race conditions during refresh
+* Allow only **one refresh call at a time**
+* Handle refresh token expiry → force logout
+* Use **HTTP 401** to trigger refresh logic
+* Rotate refresh tokens on every use (if backend supports)
 
-❌ 5 requests → 5 refresh calls → token overwrite chaos
+---
 
-### Correct solution:
+## 🚨 Common Pitfalls
 
-* Lock refresh
-* Queue requests
-* Retry after refresh
+* Multiple API calls triggering multiple refresh requests ❌
+* Not updating refresh token after rotation ❌
+* Storing tokens insecurely ❌
+* Infinite retry loops ❌
+
+---
+
+## 💡 Pro Tip (Senior-Level)
+
+Implement a **request queue while refreshing**:
+
+* If token refresh is in progress:
+
+  * Queue API calls
+  * Resume them after refresh completes
+
+This avoids duplicate refresh calls and improves performance.
+
+---
+
+If you want, I can:
+
+* Build a **production-ready architecture (with retry + caching + interceptor)**
+* Add **Combine / async-await comparison**
+* Show **unit tests for token rotation logic**
+
+Just tell me 👍
+
+
+Great—this is where most candidates struggle in interviews, so doing it properly gives you a big edge.
+
+Below is a **clean, testable setup using Swift Testing (modern Apple testing framework)** for token rotation logic.
+
+---
+
+# 🧪 What We’ll Test
+
+We’ll cover:
+
+1. ✅ Returns valid token if not expired
+2. ✅ Refreshes token when expired
+3. ✅ Saves rotated tokens correctly
+4. ✅ Handles refresh failure
+5. ✅ Prevents multiple simultaneous refresh calls
+
+---
+
+# 🧱 Step 1: Make Code Testable
+
+### Protocols for Dependency Injection
 
 ```swift
-await tokenManager.refreshIfNeeded()
-```
+protocol TokenStoring {
+    func getAccessToken() -> String?
+    func getRefreshToken() -> String?
+    func save(accessToken: String, refreshToken: String)
+}
 
----
-
-# 🧷 Advanced Banking Protections (Real-world)
-
-Banks usually add:
-
-### 🔹 Device Binding
-
-Refresh token tied to:
-
-* Device ID
-* Secure Enclave key
-* App instance
-
-Stolen token on another device → ❌
-
----
-
-### 🔹 Token Family ID
-
-```json
-refresh_token: {
-  family_id: "ABC123"
+protocol AuthServicing {
+    func refreshToken(_ refreshToken: String) async throws -> TokenResponse
 }
 ```
 
-Reuse → entire family revoked
+---
+
+### Models
+
+```swift
+struct TokenResponse {
+    let accessToken: String
+    let refreshToken: String
+}
+```
 
 ---
 
-### 🔹 Step-up Authentication
+### AuthManager (Testable Version)
 
-On suspicious refresh:
-
-* Force biometric / OTP
-* Re-authenticate user
+```swift
+actor AuthManager {
+    
+    private let storage: TokenStoring
+    private let service: AuthServicing
+    
+    private var refreshTask: Task<String, Error>?
+    
+    init(storage: TokenStoring, service: AuthServicing) {
+        self.storage = storage
+        self.service = service
+    }
+    
+    func getValidAccessToken() async throws -> String {
+        
+        if let token = storage.getAccessToken(),
+           !isExpired(token) {
+            return token
+        }
+        
+        return try await refreshAccessToken()
+    }
+    
+    private func refreshAccessToken() async throws -> String {
+        
+        if let existingTask = refreshTask {
+            return try await existingTask.value
+        }
+        
+        let task = Task<String, Error> {
+            defer { refreshTask = nil }
+            
+            guard let refreshToken = storage.getRefreshToken() else {
+                throw AuthError.noRefreshToken
+            }
+            
+            let response = try await service.refreshToken(refreshToken)
+            
+            storage.save(
+                accessToken: response.accessToken,
+                refreshToken: response.refreshToken
+            )
+            
+            return response.accessToken
+        }
+        
+        refreshTask = task
+        return try await task.value
+    }
+    
+    private func isExpired(_ token: String) -> Bool {
+        token.contains("expired") // simplified for testing
+    }
+}
+```
 
 ---
 
-# 🚫 Common iOS Mistakes (Interview Red Flags)
+# 🧪 Step 2: Mock Implementations
 
-❌ Long-lived access tokens
-❌ No refresh token rotation
-❌ Storing tokens in UserDefaults
-❌ Multiple refresh calls in parallel
-❌ Silent refresh without server-side invalidation
+```swift
+final class MockStorage: TokenStoring {
+    
+    var accessToken: String?
+    var refreshToken: String?
+    
+    func getAccessToken() -> String? { accessToken }
+    func getRefreshToken() -> String? { refreshToken }
+    
+    func save(accessToken: String, refreshToken: String) {
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+    }
+}
+```
+
+```swift
+final class MockAuthService: AuthServicing {
+    
+    var refreshCallCount = 0
+    var shouldFail = false
+    
+    func refreshToken(_ refreshToken: String) async throws -> TokenResponse {
+        refreshCallCount += 1
+        
+        if shouldFail {
+            throw AuthError.refreshFailed
+        }
+        
+        return TokenResponse(
+            accessToken: "new_access_token",
+            refreshToken: "new_refresh_token"
+        )
+    }
+}
+```
 
 ---
 
-# 🧠 Interview Answer (Perfect)
+# 🧪 Step 3: Swift Testing Unit Tests
 
-> “In banking apps, we use short-lived access tokens and rotating refresh tokens. Every refresh invalidates the previous refresh token, so stolen tokens can’t be reused. On iOS, tokens are stored in Keychain, refresh logic is centralized (often via an actor), and concurrent refresh requests are synchronized.”
-
----
-
-# ✅ When token rotation is NOT enough
-
-You still need:
-
-* TLS + certificate pinning
-* Jailbreak detection
-* Root detection
-* Runtime integrity checks
-
-Token rotation is **one layer**, not the whole shield 🛡️
+> Uses `import Testing` (not XCTest)
 
 ---
 
-If you want next:
+### 1. ✅ Returns Existing Token if Valid
 
-* 🔧 **Swift code for token rotation**
-* 🧪 **Test cases for token refresh**
-* 🧵 **Actor-based refresh queue**
-* 🔐 **Banking app security checklist**
+```swift
+import Testing
 
-Just say it 🚀
+@Test
+func returnsExistingTokenIfValid() async throws {
+    
+    let storage = MockStorage()
+    storage.accessToken = "valid_token"
+    storage.refreshToken = "refresh_token"
+    
+    let service = MockAuthService()
+    
+    let manager = AuthManager(storage: storage, service: service)
+    
+    let token = try await manager.getValidAccessToken()
+    
+    #expect(token == "valid_token")
+    #expect(service.refreshCallCount == 0)
+}
+```
 
+---
+
+### 2. 🔄 Refreshes When Token Expired
+
+```swift
+@Test
+func refreshesTokenWhenExpired() async throws {
+    
+    let storage = MockStorage()
+    storage.accessToken = "expired_token"
+    storage.refreshToken = "refresh_token"
+    
+    let service = MockAuthService()
+    
+    let manager = AuthManager(storage: storage, service: service)
+    
+    let token = try await manager.getValidAccessToken()
+    
+    #expect(token == "new_access_token")
+    #expect(service.refreshCallCount == 1)
+}
+```
+
+---
+
+### 3. 🔁 Saves Rotated Tokens
+
+```swift
+@Test
+func savesRotatedTokens() async throws {
+    
+    let storage = MockStorage()
+    storage.accessToken = "expired_token"
+    storage.refreshToken = "old_refresh"
+    
+    let service = MockAuthService()
+    
+    let manager = AuthManager(storage: storage, service: service)
+    
+    _ = try await manager.getValidAccessToken()
+    
+    #expect(storage.accessToken == "new_access_token")
+    #expect(storage.refreshToken == "new_refresh_token")
+}
+```
+
+---
+
+### 4. ❌ Handles Refresh Failure
+
+```swift
+@Test
+func throwsErrorWhenRefreshFails() async {
+    
+    let storage = MockStorage()
+    storage.accessToken = "expired_token"
+    storage.refreshToken = "refresh_token"
+    
+    let service = MockAuthService()
+    service.shouldFail = true
+    
+    let manager = AuthManager(storage: storage, service: service)
+    
+    await #expect(throws: AuthError.refreshFailed) {
+        try await manager.getValidAccessToken()
+    }
+}
+```
+
+---
+
+### 5. 🚦 Prevents Multiple Refresh Calls (Concurrency Test)
+
+```swift
+@Test
+func onlyOneRefreshCallForConcurrentRequests() async throws {
+    
+    let storage = MockStorage()
+    storage.accessToken = "expired_token"
+    storage.refreshToken = "refresh_token"
+    
+    let service = MockAuthService()
+    
+    let manager = AuthManager(storage: storage, service: service)
+    
+    async let t1 = manager.getValidAccessToken()
+    async let t2 = manager.getValidAccessToken()
+    async let t3 = manager.getValidAccessToken()
+    
+    let results = try await [t1, t2, t3]
+    
+    #expect(results.allSatisfy { $0 == "new_access_token" })
+    #expect(service.refreshCallCount == 1) // 🔥 critical assertion
+}
+```
+
+---
+
+# 🧠 Key Takeaways (Senior-Level)
+
+* Use **protocols** → makes testing easy
+* Use **actor + Task caching** → avoids duplicate refresh calls
+* Test **concurrency explicitly** → most people skip this
+* Always verify **side effects (storage updates)**
+
+---
+
+If you want next level:
+
+* Add **APIClient tests with 401 retry**
+* Add **integration tests with URLProtocol mocking**
+* Add **token expiry decoding from JWT instead of string hack**
+
+Just tell me 👍
 
