@@ -1,0 +1,190 @@
+As of **2026**, the **latest Swift version is Swift 6.x (Swift 6.2 is the newest stable iteration)**. ([Hedera][1])
+
+Swift 6 is a **major upgrade** focused on **safety, concurrency, performance, and modern tooling**.
+
+---
+
+# 🚀 Latest Swift Version
+
+* **Swift 6.0** → released (2024)
+* **Swift 6.1** → improvements (2025)
+* **Swift 6.2** → latest updates (2026) ([Hedera][1])
+
+---
+
+# 🔥 Key Features in Swift 6 (Most Important for Interviews)
+
+## 1. 🧠 Strict Concurrency (Biggest Change)
+
+* Compile-time detection of **data races**
+* Prevents multi-threading bugs **before runtime**
+* Makes async code safer than ever
+
+👉 Example:
+
+```swift
+actor Counter {
+    var value = 0
+    
+    func increment() {
+        value += 1
+    }
+}
+```
+
+✔ Actors + compiler checks = thread-safe by default
+
+📌 This is the **#1 feature interviewers expect you to know**
+
+---
+
+## 2. ⚡ Compile-Time Safety Improvements
+
+* Many runtime crashes → now caught during compilation
+* Stronger type checking and diagnostics
+
+👉 Result:
+
+* Fewer crashes in production
+* Better developer confidence
+
+([Medium][2])
+
+---
+
+## 3. 🧩 Macros (Code Generation)
+
+* Write less repetitive code
+* Swift generates boilerplate for you
+
+👉 Example:
+
+```swift
+@Observable
+class UserViewModel {
+    var name = ""
+}
+```
+
+✔ Reduces manual coding
+✔ Cleaner architecture (great for MVVM)
+
+---
+
+## 4. 🧪 New Built-in Testing Framework (Swift Testing)
+
+* Replaces / complements XCTest
+* Uses macros like `@Test`
+
+👉 Example:
+
+```swift
+@Test
+func testLogin() {
+    #expect(user.isLoggedIn)
+}
+```
+
+✔ More expressive
+✔ Better failure messages ([Fora Soft][3])
+
+---
+
+## 5. 🔗 C++ Interoperability
+
+* Directly use **C++ code in Swift**
+* Huge for legacy systems / performance-heavy apps
+
+---
+
+## 6. 📦 Improved Swift Package Manager (SPM)
+
+* Better dependency handling
+* Faster builds
+* More scalable for large apps
+
+---
+
+## 7. 🌍 Better Cross-Platform Support
+
+* Unified **Foundation framework**
+* Same APIs across:
+
+  * iOS
+  * macOS
+  * Linux
+  * Windows
+
+✔ Write once, run anywhere
+
+---
+
+## 8. 🧮 Advanced Number Handling
+
+* Built-in support for:
+
+  * Large numbers
+  * High-precision decimals
+
+✔ Useful for fintech apps
+
+---
+
+## 9. ⚙️ Typed Throws (Better Error Handling)
+
+* You can specify **exact error types**
+
+👉 Example:
+
+```swift
+func fetchData() throws(NetworkError) {
+    // safer error handling
+}
+```
+
+---
+
+## 10. 🚀 Performance Improvements
+
+* Faster compile times
+* Better memory management
+* Optimized concurrency
+
+([Apple Developer][4])
+
+---
+
+# 🧠 Summary (Interview-Ready)
+
+If interviewer asks:
+
+👉 **“What’s new in Swift 6?”**, say:
+
+* Strict concurrency & data race safety (most important)
+* Macros for code generation
+* New Swift Testing framework
+* C++ interoperability
+* Improved performance & compile-time checks
+* Better package management & cross-platform support
+
+---
+
+# 💡 Pro Tip (For You as iOS Dev)
+
+Since you're preparing at a **senior level**, focus on:
+
+* Actors vs DispatchQueue (very important)
+* Structured concurrency (`async/await`, `Task`)
+* Swift Testing (new trend replacing XCTest)
+
+---
+
+If you want, I can:
+👉 Compare **Swift 5 vs Swift 6 (interview table)**
+👉 Give **Swift 6 tricky interview questions**
+👉 Show **real-world MVVM + concurrency example**
+
+[1]: https://hedera.com/blog/announcing-support-of-swift-6-in-the-hiero-swift-sdk/?utm_source=chatgpt.com "Announcing Support of Swift 6 in the Hiero Swift SDK"
+[2]: https://medium.com/%40kamzksta/swift-6-6-2-the-complete-guide-to-what-changed-for-ios-developers-31c68514dfa8?utm_source=chatgpt.com "Swift 6 & 6.2: The Complete Guide to What Changed for ..."
+[3]: https://www.forasoft.com/blog/article/swift-6-must-have-features?utm_source=chatgpt.com "Swift 6 Explained: All the Must-Have Features You Need to ..."
+[4]: https://developer.apple.com/swift/whats-new/?utm_source=chatgpt.com "What's New - Swift"
