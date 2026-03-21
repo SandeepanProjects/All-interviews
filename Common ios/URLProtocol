@@ -1,0 +1,206 @@
+`URLProtocol` in iOS (Swift) is a powerful but often underused API that lets you **intercept, inspect, modify, or mock network requests** made through `URLSession`.
+
+Think of it as a **custom networking middleware layer**.
+
+---
+
+## 🔹 What is `URLProtocol`?
+
+`URLProtocol` is part of Foundation framework and allows you to:
+
+* Intercept outgoing requests
+* Modify requests (headers, body, etc.)
+* Return custom/mock responses
+* Log or monitor network activity
+* Block certain requests
+
+---
+
+## 🔹 Why use `URLProtocol`?
+
+### Common use cases:
+
+1. **Mock API responses (unit testing)**
+2. **Logging network traffic**
+3. **Injecting headers (auth tokens)**
+4. **Debugging network calls**
+5. **Offline testing / caching**
+
+---
+
+## 🔹 How it works (Flow)
+
+1. `URLSession` creates a request
+2. System checks registered `URLProtocol` classes
+3. If your protocol **can handle** the request → it takes over
+4. You decide what to do:
+
+   * Forward request to server
+   * Return mock data
+   * Modify response
+
+---
+
+## 🔹 Basic Implementation
+
+### Step 1: Create custom protocol
+
+```swift
+class MockURLProtocol: URLProtocol {
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        return true // intercept all requests
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        return request
+    }
+
+    override func startLoading() {
+        // Mock response
+        let data = """
+        { "message": "Hello from mock!" }
+        """.data(using: .utf8)!
+
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+
+        // Send response
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {
+        // Cleanup if needed
+    }
+}
+```
+
+---
+
+## 🔹 Step 2: Register it
+
+```swift
+let config = URLSessionConfiguration.default
+config.protocolClasses = [MockURLProtocol.self]
+
+let session = URLSession(configuration: config)
+```
+
+Now all requests from this session go through your protocol.
+
+---
+
+## 🔹 Example Use Case: Unit Testing
+
+Instead of hitting real APIs:
+
+```swift
+func testAPICall() {
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [MockURLProtocol.self]
+
+    let session = URLSession(configuration: config)
+
+    // Inject session into your API client
+}
+```
+
+👉 This makes tests:
+
+* Fast ⚡
+* Reliable ✅
+* Offline-friendly 📵
+
+---
+
+## 🔹 Advanced: Conditional Interception
+
+```swift
+override class func canInit(with request: URLRequest) -> Bool {
+    return request.url?.host == "api.myserver.com"
+}
+```
+
+---
+
+## 🔹 Modify Request Example
+
+```swift
+override func startLoading() {
+    var modifiedRequest = request
+    modifiedRequest.addValue("Bearer token", forHTTPHeaderField: "Authorization")
+}
+```
+
+---
+
+## 🔹 Forward Request to Real Server
+
+```swift
+let task = URLSession.shared.dataTask(with: request) { data, response, error in
+    if let response = response {
+        self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    }
+
+    if let data = data {
+        self.client?.urlProtocol(self, didLoad: data)
+    }
+
+    if let error = error {
+        self.client?.urlProtocol(self, didFailWithError: error)
+    } else {
+        self.client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
+task.resume()
+```
+
+---
+
+## 🔹 Important Notes
+
+* Works only with `URLSession`, not `WKWebView` by default
+* Avoid infinite loops (don’t re-trigger your own protocol)
+* Use `URLProtocol.property(forKey:)` to mark handled requests
+
+---
+
+## 🔹 Pro Tips (Interview Level)
+
+* Always mention **mocking + testing advantage**
+* Highlight **dependency injection of URLSession**
+* Explain how it replaces tools like:
+
+  * Charles Proxy (for debugging)
+  * Mock servers (for testing)
+
+---
+
+## 🔹 Common Interview Question
+
+👉 *“How do you mock network calls in iOS?”*
+
+Answer:
+
+> Use `URLProtocol` to intercept requests and return predefined responses without hitting real APIs.
+
+---
+
+## 🔹 When NOT to use
+
+* Simple apps (overkill)
+* When using 3rd-party networking libs that already provide mocking (like Alamofire + plugins)
+
+---
+
+If you want, I can next:
+✅ Convert this into a **full MVVM + SwiftUI testable architecture**
+✅ Show **real-world token injection using URLProtocol**
+✅ Give **FAANG-level tricky interview questions on URLProtocol**
