@@ -1,0 +1,97 @@
+`viewIsAppearing` is a newer lifecycle callback in iOS that gives you a hook **between `viewWillAppear` and `viewDidAppear`**—specifically when the view is in the process of being added to the view hierarchy.
+
+### 🧠 Why Apple introduced it
+
+In traditional UIKit:
+
+* `viewWillAppear` → called before animations/layout are finalized
+* `viewDidAppear` → called after everything is on screen
+
+Sometimes you need a **middle point**:
+
+* View is about to appear
+* Layout is mostly ready
+* But animation hasn’t fully completed
+
+That’s where `viewIsAppearing` comes in.
+
+---
+
+### 📍 Method Signature
+
+```swift
+override func viewIsAppearing(_ animated: Bool) {
+    super.viewIsAppearing(animated)
+}
+```
+
+---
+
+### 🔄 Lifecycle Order
+
+Here’s how it fits:
+
+```text
+viewDidLoad
+viewWillAppear
+viewIsAppearing   ← ⭐ NEW
+viewDidAppear
+```
+
+---
+
+### ✅ When to Use `viewIsAppearing`
+
+Use it when you need:
+
+* Final layout-dependent updates
+* UI adjustments that depend on actual size/constraints
+* Syncing UI with transition animations
+* Avoiding repeated work in `viewDidAppear`
+
+---
+
+### 💡 Example Use Case
+
+```swift
+override func viewIsAppearing(_ animated: Bool) {
+    super.viewIsAppearing(animated)
+    
+    // Safe to use final layout here
+    myView.layer.cornerRadius = myView.frame.height / 2
+}
+```
+
+---
+
+### ⚠️ Key Notes
+
+* Available from **iOS 13+**
+* Called **every time the view appears**
+* Happens **during transition**, not after
+
+---
+
+### 🆚 Quick Comparison
+
+| Method            | When Called                  | Use Case                   |
+| ----------------- | ---------------------------- | -------------------------- |
+| `viewWillAppear`  | Before view appears          | Setup data                 |
+| `viewIsAppearing` | During appearance transition | Layout/UI tweaks           |
+| `viewDidAppear`   | After view fully visible     | Start animations, tracking |
+
+---
+
+### 🚀 Interview Insight
+
+A strong answer in interviews:
+
+> "`viewIsAppearing` is useful when you need layout-correct UI updates during transition, avoiding hacks like `DispatchQueue.main.async` in `viewWillAppear`."
+
+---
+
+If you want, I can give:
+
+* tricky interview questions on lifecycle
+* SwiftUI equivalent (`.onAppear` vs `.task`)
+* real bugs caused by misuse of lifecycle methods
