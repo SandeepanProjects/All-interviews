@@ -1,0 +1,711 @@
+Great — let’s go beyond theory and look at **real, production-style Swift unit tests** that you can actually talk about in interviews.
+
+I’ll cover the most important areas:
+
+---
+
+# ✅ 1. ViewModel Unit Test (MVVM)
+
+### 🔹 Production Code
+
+```swift
+protocol AuthServiceProtocol {
+    func login(email: String, password: String) async throws -> User
+}
+
+class LoginViewModel {
+    private let service: AuthServiceProtocol
+
+    init(service: AuthServiceProtocol) {
+        self.service = service
+    }
+
+    func login(email: String, password: String) async -> Result<User, Error> {
+        guard email.contains("@"), password.count >= 6 else {
+            return .failure(LoginError.invalidInput)
+        }
+
+        do {
+            let user = try await service.login(email: email, password: password)
+            return .success(user)
+        } catch {
+            return .failure(error)
+        }
+    }
+}
+```
+
+---
+
+### 🔹 Mock Service
+
+```swift
+class MockAuthService: AuthServiceProtocol {
+    var shouldFail = false
+
+    func login(email: String, password: String) async throws -> User {
+        if shouldFail {
+            throw LoginError.network
+        }
+        return User(id: 1, name: "Test")
+    }
+}
+```
+
+---
+
+### 🔹 Unit Test
+
+```swift
+import XCTest
+
+final class LoginViewModelTests: XCTestCase {
+
+    func test_login_success() async {
+        let mockService = MockAuthService()
+        let viewModel = LoginViewModel(service: mockService)
+
+        let result = await viewModel.login(email: "test@test.com", password: "123456")
+
+        switch result {
+        case .success(let user):
+            XCTAssertEqual(user.name, "Test")
+        case .failure:
+            XCTFail("Expected success")
+        }
+    }
+
+    func test_login_invalidInput() async {
+        let mockService = MockAuthService()
+        let viewModel = LoginViewModel(service: mockService)
+
+        let result = await viewModel.login(email: "invalid", password: "123")
+
+        switch result {
+        case .success:
+            XCTFail("Expected failure")
+        case .failure(let error):
+            XCTAssertEqual(error as? LoginError, .invalidInput)
+        }
+    }
+
+    func test_login_failure() async {
+        let mockService = MockAuthService()
+        mockService.shouldFail = true
+        let viewModel = LoginViewModel(service: mockService)
+
+        let result = await viewModel.login(email: "test@test.com", password: "123456")
+
+        switch result {
+        case .success:
+            XCTFail("Expected failure")
+        case .failure(let error):
+            XCTAssertEqual(error as? LoginError, .network)
+        }
+    }
+}
+```
+
+---
+
+# ✅ 2. Networking Layer Test (Mocking API)
+
+### 🔹 Production Code
+
+```swift
+protocol APIClient {
+    func fetchData() async throws -> Data
+}
+
+class UserRepository {
+    private let api: APIClient
+
+    init(api: APIClient) {
+        self.api = api
+    }
+
+    func fetchUsers() async throws -> [User] {
+        let data = try await api.fetchData()
+        return try JSONDecoder().decode([User].self, from: data)
+    }
+}
+```
+
+---
+
+### 🔹 Mock API
+
+```swift
+class MockAPIClient: APIClient {
+    var mockData: Data?
+    var shouldThrowError = false
+
+    func fetchData() async throws -> Data {
+        if shouldThrowError {
+            throw URLError(.badServerResponse)
+        }
+        return mockData ?? Data()
+    }
+}
+```
+
+---
+
+### 🔹 Unit Test
+
+```swift
+final class UserRepositoryTests: XCTestCase {
+
+    func test_fetchUsers_success() async throws {
+        let mockAPI = MockAPIClient()
+        let users = [User(id: 1, name: "John")]
+        mockAPI.mockData = try JSONEncoder().encode(users)
+
+        let repo = UserRepository(api: mockAPI)
+
+        let result = try await repo.fetchUsers()
+
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result.first?.name, "John")
+    }
+
+    func test_fetchUsers_failure() async {
+        let mockAPI = MockAPIClient()
+        mockAPI.shouldThrowError = true
+
+        let repo = UserRepository(api: mockAPI)
+
+        do {
+            _ = try await repo.fetchUsers()
+            XCTFail("Expected error")
+        } catch {
+            XCTAssertTrue(error is URLError)
+        }
+    }
+}
+```
+
+---
+
+# ✅ 3. Async Concurrency Test (Important for Senior Roles)
+
+### 🔹 Example: Prevent Duplicate API Calls
+
+```swift
+actor RequestManager {
+    private var isFetching = false
+
+    func fetch() async -> Bool {
+        if isFetching { return false }
+        isFetching = true
+
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+
+        isFetching = false
+        return true
+    }
+}
+```
+
+---
+
+### 🔹 Unit Test
+
+```swift
+final class RequestManagerTests: XCTestCase {
+
+    func test_preventDuplicateRequests() async {
+        let manager = RequestManager()
+
+        async let first = manager.fetch()
+        async let second = manager.fetch()
+
+        let results = await [first, second]
+
+        XCTAssertTrue(results.contains(true))
+        XCTAssertTrue(results.contains(false))
+    }
+}
+```
+
+---
+
+# ✅ 4. Pagination Logic Test
+
+```swift
+class PaginationManager {
+    private(set) var currentPage = 0
+
+    func nextPage() -> Int {
+        currentPage += 1
+        return currentPage
+    }
+}
+```
+
+### Test
+
+```swift
+func test_pagination_incrementsPage() {
+    let manager = PaginationManager()
+
+    XCTAssertEqual(manager.nextPage(), 1)
+    XCTAssertEqual(manager.nextPage(), 2)
+}
+```
+
+---
+
+# ✅ 5. Cache Logic Test
+
+```swift
+class CacheManager {
+    private var cache: [String: String] = [:]
+
+    func save(key: String, value: String) {
+        cache[key] = value
+    }
+
+    func get(key: String) -> String? {
+        return cache[key]
+    }
+}
+```
+
+### Test
+
+```swift
+func test_cache_saveAndRetrieve() {
+    let cache = CacheManager()
+
+    cache.save(key: "user", value: "John")
+
+    XCTAssertEqual(cache.get(key: "user"), "John")
+}
+```
+
+---
+
+# 🔥 Key Takeaways (what interviewers want to hear)
+
+When you show this level, they see:
+
+* ✅ Protocol-based design (testability)
+* ✅ Dependency Injection
+* ✅ Async/await testing
+* ✅ Proper mocking
+* ✅ Edge case coverage
+
+---
+
+# 🚀 If you want next level
+
+I can help you with:
+
+* Writing **unit tests for a real networking layer with retries + caching**
+* Testing **Combine / SwiftUI ViewModels**
+* Building a **complete testable architecture (like Stripe-level)**
+
+Just tell me 👍
+
+
+Alright — now we’re stepping into **true senior/Stripe-level engineering**.
+I’ll design a **production-grade, fully testable iOS architecture** that you can:
+
+* Explain in interviews
+* Actually build in real apps
+* Unit test deeply
+
+---
+
+# 🧠 High-Level Architecture (Stripe-level thinking)
+
+We’ll use a mix of:
+
+* **Clean Architecture**
+* **MVVM**
+* **Protocol-oriented design**
+* **Dependency Injection**
+* **Async/Await + Actors (for concurrency safety)**
+
+---
+
+## 🔷 Layers Overview
+
+```
+Presentation (SwiftUI / UIKit)
+    ↓
+ViewModel (State + Logic)
+    ↓
+UseCase (Business Rules)
+    ↓
+Repository (Abstraction)
+    ↓
+Data Sources
+   ├── Network
+   └── Cache (DB / Memory)
+```
+
+---
+
+# ✅ 1. Domain Layer (Pure Business Logic)
+
+### Entity
+
+```swift
+struct User: Codable, Equatable {
+    let id: Int
+    let name: String
+}
+```
+
+---
+
+### UseCase
+
+```swift
+protocol FetchUsersUseCase {
+    func execute() async throws -> [User]
+}
+
+final class FetchUsersUseCaseImpl: FetchUsersUseCase {
+    private let repository: UserRepository
+
+    init(repository: UserRepository) {
+        self.repository = repository
+    }
+
+    func execute() async throws -> [User] {
+        try await repository.getUsers()
+    }
+}
+```
+
+👉 This layer is:
+
+* 100% testable
+* No UIKit / networking dependency
+
+---
+
+# ✅ 2. Data Layer
+
+## Repository
+
+```swift
+protocol UserRepository {
+    func getUsers() async throws -> [User]
+}
+```
+
+---
+
+## Repository Implementation
+
+```swift
+final class UserRepositoryImpl: UserRepository {
+    private let api: APIClient
+    private let cache: UserCache
+
+    init(api: APIClient, cache: UserCache) {
+        self.api = api
+        self.cache = cache
+    }
+
+    func getUsers() async throws -> [User] {
+        do {
+            let data = try await api.fetchUsers()
+            let users = try JSONDecoder().decode([User].self, from: data)
+            await cache.save(users)
+            return users
+        } catch {
+            if let cached = await cache.get(), !cached.isEmpty {
+                return cached
+            }
+            throw error
+        }
+    }
+}
+```
+
+---
+
+## API Client
+
+```swift
+protocol APIClient {
+    func fetchUsers() async throws -> Data
+}
+
+final class APIClientImpl: APIClient {
+    func fetchUsers() async throws -> Data {
+        let url = URL(string: "https://api.example.com/users")!
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return data
+    }
+}
+```
+
+---
+
+## Cache (Actor = Thread Safe 🔥)
+
+```swift
+actor UserCache {
+    private var users: [User] = []
+
+    func save(_ users: [User]) {
+        self.users = users
+    }
+
+    func get() -> [User]? {
+        users
+    }
+}
+```
+
+---
+
+# ✅ 3. Presentation Layer (ViewModel)
+
+```swift
+@MainActor
+final class UsersViewModel: ObservableObject {
+
+    @Published private(set) var users: [User] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var error: String?
+
+    private let useCase: FetchUsersUseCase
+
+    init(useCase: FetchUsersUseCase) {
+        self.useCase = useCase
+    }
+
+    func loadUsers() {
+        Task {
+            isLoading = true
+            defer { isLoading = false }
+
+            do {
+                users = try await useCase.execute()
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
+    }
+}
+```
+
+---
+
+# 🧪 FULL UNIT TESTING STRATEGY
+
+---
+
+# ✅ 1. Test UseCase
+
+```swift
+final class MockUserRepository: UserRepository {
+    var users: [User] = []
+    var shouldThrow = false
+
+    func getUsers() async throws -> [User] {
+        if shouldThrow { throw URLError(.badServerResponse) }
+        return users
+    }
+}
+```
+
+```swift
+final class FetchUsersUseCaseTests: XCTestCase {
+
+    func test_execute_success() async throws {
+        let repo = MockUserRepository()
+        repo.users = [User(id: 1, name: "Test")]
+
+        let useCase = FetchUsersUseCaseImpl(repository: repo)
+
+        let result = try await useCase.execute()
+
+        XCTAssertEqual(result.count, 1)
+    }
+}
+```
+
+---
+
+# ✅ 2. Test Repository (IMPORTANT 🔥)
+
+```swift
+final class MockAPI: APIClient {
+    var data: Data?
+    var shouldFail = false
+
+    func fetchUsers() async throws -> Data {
+        if shouldFail { throw URLError(.badServerResponse) }
+        return data ?? Data()
+    }
+}
+```
+
+---
+
+```swift
+final class UserRepositoryTests: XCTestCase {
+
+    func test_returnsNetworkData_whenSuccess() async throws {
+        let api = MockAPI()
+        let cache = UserCache()
+
+        let users = [User(id: 1, name: "John")]
+        api.data = try JSONEncoder().encode(users)
+
+        let repo = UserRepositoryImpl(api: api, cache: cache)
+
+        let result = try await repo.getUsers()
+
+        XCTAssertEqual(result.first?.name, "John")
+    }
+
+    func test_returnsCache_whenNetworkFails() async throws {
+        let api = MockAPI()
+        api.shouldFail = true
+
+        let cache = UserCache()
+        await cache.save([User(id: 2, name: "Cached")])
+
+        let repo = UserRepositoryImpl(api: api, cache: cache)
+
+        let result = try await repo.getUsers()
+
+        XCTAssertEqual(result.first?.name, "Cached")
+    }
+}
+```
+
+---
+
+# ✅ 3. Test ViewModel
+
+```swift
+final class MockUseCase: FetchUsersUseCase {
+    var users: [User] = []
+    var shouldThrow = false
+
+    func execute() async throws -> [User] {
+        if shouldThrow { throw URLError(.badServerResponse) }
+        return users
+    }
+}
+```
+
+---
+
+```swift
+final class UsersViewModelTests: XCTestCase {
+
+    func test_loadUsers_success() async {
+        let mock = MockUseCase()
+        mock.users = [User(id: 1, name: "VM")]
+
+        let vm = UsersViewModel(useCase: mock)
+
+        await vm.loadUsers()
+
+        XCTAssertEqual(vm.users.count, 1)
+        XCTAssertFalse(vm.isLoading)
+    }
+}
+```
+
+---
+
+# 🔥 Stripe-Level Enhancements (VERY IMPORTANT)
+
+To truly stand out:
+
+---
+
+## ✅ 1. Retry + Backoff
+
+```swift
+func retry<T>(
+    times: Int,
+    operation: @escaping () async throws -> T
+) async throws -> T {
+    var lastError: Error?
+
+    for _ in 0..<times {
+        do {
+            return try await operation()
+        } catch {
+            lastError = error
+        }
+    }
+    throw lastError!
+}
+```
+
+---
+
+## ✅ 2. Request Deduplication (Actor)
+
+```swift
+actor RequestDeduplicator {
+    private var ongoing: Task<[User], Error>?
+
+    func run(_ block: @escaping () async throws -> [User]) async throws -> [User] {
+        if let task = ongoing {
+            return try await task.value
+        }
+
+        let task = Task { try await block() }
+        ongoing = task
+
+        defer { ongoing = nil }
+
+        return try await task.value
+    }
+}
+```
+
+---
+
+## ✅ 3. Dependency Injection Container
+
+```swift
+final class AppDIContainer {
+
+    func makeUsersViewModel() -> UsersViewModel {
+        let api = APIClientImpl()
+        let cache = UserCache()
+        let repo = UserRepositoryImpl(api: api, cache: cache)
+        let useCase = FetchUsersUseCaseImpl(repository: repo)
+
+        return UsersViewModel(useCase: useCase)
+    }
+}
+```
+
+---
+
+# 🎯 How to explain this in interview
+
+> “I use a Clean Architecture approach with clear separation between ViewModels, UseCases, and Repositories.
+> I rely heavily on protocol-based abstractions and dependency injection to ensure each layer is independently testable.
+> I also handle real-world concerns like caching, retries, and request deduplication using Swift concurrency and actors, ensuring thread safety and scalability.”
+
+---
+
+# 🚀 If you want next level (seriously powerful)
+
+I can take you further into:
+
+* 🔥 Combine-based reactive architecture
+* 🔥 Offline-first sync engine (like Stripe/WhatsApp)
+* 🔥 Advanced networking layer (interceptors, auth refresh)
+* 🔥 Modularization (SPM, feature modules)
+
+Just tell me 👍
+
