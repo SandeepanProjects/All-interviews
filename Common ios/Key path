@@ -1,0 +1,163 @@
+In Swift, a **key path** is a type-safe way to refer to a property of a type—without directly accessing it. It lets you **point to a property** and use it later for reading or writing values.
+
+Think of it like:
+👉 “a reference to a property, not the value itself”
+
+---
+
+## 🔹 Basic Example
+
+```swift
+struct Person {
+    var name: String
+    var age: Int
+}
+
+let person = Person(name: "John", age: 30)
+
+// Create a key path
+let nameKeyPath = \Person.name
+
+// Use it
+let name = person[keyPath: nameKeyPath]
+print(name) // John
+```
+
+---
+
+## 🔹 Why KeyPaths are Useful
+
+### 1. **Type Safety**
+
+Unlike strings (`"name"`), key paths are checked at compile time.
+
+```swift
+// ❌ Unsafe (string-based)
+value(forKey: "name")
+
+// ✅ Safe
+\Person.name
+```
+
+---
+
+### 2. **Reusable Property Access**
+
+You can pass property references around:
+
+```swift
+func printValue<T, V>(_ object: T, keyPath: KeyPath<T, V>) {
+    print(object[keyPath: keyPath])
+}
+
+printValue(person, keyPath: \.age) // 30
+```
+
+---
+
+### 3. **Used in Functional Programming**
+
+```swift
+let people = [
+    Person(name: "A", age: 20),
+    Person(name: "B", age: 25)
+]
+
+// Map using keyPath
+let names = people.map(\.name)
+print(names) // ["A", "B"]
+```
+
+---
+
+## 🔹 Types of KeyPaths
+
+### 1. `KeyPath`
+
+Read-only
+
+```swift
+let kp: KeyPath<Person, String> = \Person.name
+```
+
+---
+
+### 2. `WritableKeyPath`
+
+Can modify value (for structs)
+
+```swift
+var person = Person(name: "John", age: 30)
+let kp: WritableKeyPath<Person, String> = \Person.name
+
+person[keyPath: kp] = "Doe"
+```
+
+---
+
+### 3. `ReferenceWritableKeyPath`
+
+For classes (reference types)
+
+```swift
+class Car {
+    var model: String = ""
+}
+
+let kp = \Car.model
+```
+
+---
+
+## 🔹 Real-World Use Cases (Important for Interviews)
+
+### ✅ Sorting
+
+```swift
+let sorted = people.sorted { $0[keyPath: \.age] < $1[keyPath: \.age] }
+```
+
+---
+
+### ✅ Generic APIs / Clean Architecture
+
+Used heavily in:
+
+* SwiftUI (`@State`, bindings)
+* Combine
+* Data transformation layers
+
+---
+
+### ✅ SwiftUI Example
+
+```swift
+TextField("Name", text: $user.name)
+```
+
+Behind the scenes, SwiftUI uses **key paths** to bind UI to data.
+
+---
+
+## 🔹 Key Concept to Remember
+
+| Concept             | Meaning              |
+| ------------------- | -------------------- |
+| `\Type.property`    | KeyPath              |
+| `object[keyPath:]`  | Access value         |
+| Type-safe           | No runtime crashes   |
+| Works with generics | Powerful abstraction |
+
+---
+
+## 🔹 Simple Analogy
+
+* `"name"` → like giving directions using text (error-prone)
+* `\Person.name` → like giving GPS coordinates (precise & safe)
+
+---
+
+If you want, I can show:
+
+* How key paths are used internally in **SwiftUI bindings**
+* Or tricky **interview questions on key paths** (very common for senior iOS roles)
