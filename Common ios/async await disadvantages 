@@ -1,0 +1,190 @@
+Good—this is exactly the kind of **depth interviewers look for**.
+Everyone talks about advantages, but knowing **disadvantages of async/await** shows senior-level understanding.
+
+---
+
+# ⚠️ Disadvantages of async/await (Swift Concurrency)
+
+## 1. ❗ Less Control Over Threads
+
+With GCD, you explicitly control queues:
+
+```swift
+DispatchQueue.global(qos: .userInitiated).async { ... }
+```
+
+With `async/await`, Swift manages threads for you.
+
+👉 Problem:
+
+* Harder to fine-tune performance
+* Not ideal for low-level optimizations
+
+---
+
+## 2. 🧩 Learning Curve (Structured Concurrency)
+
+Concepts like:
+
+* `Task`
+* `TaskGroup`
+* `Actor`
+* `Sendable`
+
+👉 These are **not trivial**, even for experienced developers.
+
+---
+
+## 3. 🐞 Debugging Can Still Be Tricky
+
+Although cleaner than GCD, debugging issues like:
+
+* Suspended tasks
+* Unexpected task cancellation
+* Deadlocks with actors
+
+can still be confusing.
+
+---
+
+## 4. ⚠️ Hidden Thread Switching
+
+```swift
+let data = await fetchData()
+```
+
+👉 You don’t know:
+
+* Which thread you're on
+* When context switches happen
+
+This can cause:
+
+* UI bugs (if not on main thread)
+* Performance unpredictability
+
+---
+
+## 5. 🔄 Backward Compatibility Issues
+
+* Works only on **iOS 13+ (limited)** / best on iOS 15+
+* Older codebases heavily use GCD / completion handlers
+
+👉 Migration is not always easy.
+
+---
+
+## 6. 🔗 Interoperability with Old APIs
+
+Many APIs still use completion handlers:
+
+```swift
+func fetch(completion: @escaping (Data) -> Void)
+```
+
+👉 You need wrappers:
+
+```swift
+func fetch() async -> Data {
+    await withCheckedContinuation { cont in
+        fetch { data in
+            cont.resume(returning: data)
+        }
+    }
+}
+```
+
+👉 Adds boilerplate.
+
+---
+
+## 7. ⚡ Performance Overhead (Sometimes)
+
+* Task creation has overhead
+* Actor isolation adds locking cost
+
+👉 In high-performance scenarios (e.g., tight loops, real-time systems):
+GCD may be faster.
+
+---
+
+## 8. 🚫 Not Fully Eliminating Race Conditions
+
+People assume async/await = safe ❌
+
+👉 Wrong:
+
+* Shared mutable state still dangerous
+* Need `actor` or locks
+
+---
+
+## 9. 🔒 Actor Overuse Can Hurt Performance
+
+Actors serialize access:
+
+```swift
+actor DataManager { ... }
+```
+
+👉 Problem:
+
+* Can become bottleneck
+* Reduces parallelism if overused
+
+---
+
+## 10. ❗ Cancellation is Cooperative
+
+```swift
+Task.cancel()
+```
+
+👉 But:
+
+* Task must **check for cancellation**
+* Otherwise it keeps running
+
+```swift
+try Task.checkCancellation()
+```
+
+---
+
+# 🧠 Senior-Level Insight (Important)
+
+👉 The biggest misconception:
+
+> “async/await replaces GCD completely”
+
+Reality:
+
+* async/await = **abstraction**
+* GCD = **foundation**
+
+---
+
+# 🎯 Interview Answer (Perfect)
+
+If asked:
+
+> “What are disadvantages of async/await?”
+
+Say:
+
+> Async/await improves readability and structure, but it reduces low-level control over threads, introduces runtime overhead, and requires understanding structured concurrency concepts like actors and task groups. It also doesn’t eliminate race conditions and can be harder to integrate with legacy callback-based APIs.
+
+---
+
+# 🏆 When NOT to Use async/await
+
+* Ultra low-latency systems
+* Heavy parallel computation
+* Legacy-heavy projects
+* When you need strict thread control
+
+---
+
+If you want next level:
+👉 I can explain **Actors vs DispatchQueue (very important for interviews)**
+👉 Or give **real-world concurrency bugs + fixes (Stripe-level)**
