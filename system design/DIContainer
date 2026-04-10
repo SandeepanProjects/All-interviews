@@ -1,0 +1,590 @@
+A **DI Container (Dependency Injection Container)** in Swift is a central place that **creates, manages, and provides dependencies** (objects/services) to different parts of your app.
+
+Instead of objects creating their own dependencies, they **receive them from the container**, making your code more modular, testable, and maintainable.
+
+---
+
+# 🔹 Simple Analogy
+
+Think of a DI Container like a **factory or service registry**:
+
+* You ask for something (e.g., `NetworkService`)
+* The container gives you a ready-made instance
+* You don’t care how it was created
+
+---
+
+# 🔹 Why Dependency Injection?
+
+Without DI:
+
+```swift
+class UserViewModel {
+    let networkService = NetworkService() // tightly coupled
+}
+```
+
+Problems:
+
+* Hard to test
+* Hard to replace (e.g., mock API)
+* Tight coupling
+
+---
+
+With DI:
+
+```swift
+class UserViewModel {
+    let networkService: NetworkServiceProtocol
+    
+    init(networkService: NetworkServiceProtocol) {
+        self.networkService = networkService
+    }
+}
+```
+
+Now:
+
+* Easy to swap implementations
+* Easy to test
+* Loosely coupled ✅
+
+---
+
+# 🔹 What is a DI Container?
+
+A DI Container:
+
+* Registers dependencies
+* Resolves dependencies when needed
+* Manages object lifecycle (optional)
+
+---
+
+# 🔹 Basic DI Container in Swift
+
+### Step 1: Create Container
+
+```swift
+class DIContainer {
+    static let shared = DIContainer()
+    
+    private var services: [String: Any] = [:]
+    
+    func register<T>(_ type: T.Type, service: T) {
+        let key = "\(type)"
+        services[key] = service
+    }
+    
+    func resolve<T>(_ type: T.Type) -> T? {
+        let key = "\(type)"
+        return services[key] as? T
+    }
+}
+```
+
+---
+
+### Step 2: Register Dependencies
+
+```swift
+DIContainer.shared.register(NetworkServiceProtocol.self,
+                            service: NetworkService())
+```
+
+---
+
+### Step 3: Resolve Dependencies
+
+```swift
+class UserViewModel {
+    let networkService: NetworkServiceProtocol
+    
+    init() {
+        self.networkService = DIContainer.shared.resolve(NetworkServiceProtocol.self)!
+    }
+}
+```
+
+---
+
+# 🔹 Better Version (Factory-based)
+
+```swift
+class DIContainer {
+    static let shared = DIContainer()
+    
+    private var factories: [String: () -> Any] = [:]
+    
+    func register<T>(_ type: T.Type, factory: @escaping () -> T) {
+        factories["\(type)"] = factory
+    }
+    
+    func resolve<T>(_ type: T.Type) -> T {
+        return factories["\(type)"]!() as! T
+    }
+}
+```
+
+Usage:
+
+```swift
+container.register(NetworkServiceProtocol.self) {
+    NetworkService()
+}
+```
+
+---
+
+# 🔹 When to Use DI Container in Swift
+
+### ✅ 1. Medium to Large Apps
+
+* Multiple services (API, DB, analytics, caching)
+* Avoid manual wiring everywhere
+
+---
+
+### ✅ 2. Clean Architecture / MVVM / VIPER
+
+* ViewModels shouldn’t create services
+* Keeps layers independent
+
+---
+
+### ✅ 3. Unit Testing
+
+```swift
+class MockNetworkService: NetworkServiceProtocol { }
+```
+
+Inject mock:
+
+```swift
+UserViewModel(networkService: MockNetworkService())
+```
+
+---
+
+### ✅ 4. Swappable Implementations
+
+Example:
+
+* Dev → Mock API
+* Prod → Real API
+
+---
+
+### ✅ 5. Lifecycle Management
+
+* Singleton services
+* Transient (new instance every time)
+
+---
+
+# 🔹 When NOT to Use It
+
+❌ Small apps
+❌ Simple scripts
+❌ Over-engineering
+
+If your app has:
+
+* 2–3 classes → DI container is overkill
+
+---
+
+# 🔹 Popular DI Frameworks in Swift
+
+Instead of building your own:
+
+* **Swinject**
+* **Needle** (by Uber)
+* **Resolver**
+
+---
+
+# 🔹 Types of Dependency Injection
+
+1. **Constructor Injection (Best)**
+
+```swift
+init(service: Service)
+```
+
+2. **Property Injection**
+
+```swift
+var service: Service!
+```
+
+3. **Method Injection**
+
+```swift
+func fetch(service: Service)
+```
+
+---
+
+# 🔹 Real-World Example (Clean MVVM)
+
+```swift
+protocol APIService {
+    func fetchUsers()
+}
+
+class APIServiceImpl: APIService {
+    func fetchUsers() { }
+}
+
+class UserViewModel {
+    private let apiService: APIService
+    
+    init(apiService: APIService) {
+        self.apiService = apiService
+    }
+}
+```
+
+Assembly:
+
+```swift
+container.register(APIService.self) {
+    APIServiceImpl()
+}
+
+container.register(UserViewModel.self) {
+    UserViewModel(apiService: container.resolve(APIService.self))
+}
+```
+
+---
+
+# 🔥 Key Takeaways
+
+* DI Container = **central dependency manager**
+* Promotes:
+
+  * Loose coupling
+  * Testability
+  * Scalability
+* Use it when app complexity grows
+* Prefer **constructor injection + DI container**
+
+---
+
+If you want, I can:
+
+* Build a **production-level DI container like Swinject**
+* Show **iOS app architecture using DI (MVVM + networking + caching)**
+* Or give **interview-ready answers for DI questions**
+
+Let’s build a **real-world iOS architecture using DI + MVVM + Networking + Caching** — the kind expected in senior/tech lead interviews.
+
+I’ll show you a **clean, production-style structure**, not just theory.
+
+---
+
+# 🧱 High-Level Architecture
+
+```
+App
+ ├── DIContainer
+ ├── Network Layer
+ ├── Cache Layer
+ ├── Repository Layer
+ ├── ViewModel (MVVM)
+ └── View (UIKit/SwiftUI)
+```
+
+Flow:
+
+```
+View → ViewModel → Repository → Network + Cache
+```
+
+---
+
+# 🔹 1. Network Layer
+
+### Protocol (important for DI)
+
+```swift
+protocol NetworkService {
+    func request<T: Decodable>(_ endpoint: URL) async throws -> T
+}
+```
+
+### Implementation
+
+```swift
+class URLSessionNetworkService: NetworkService {
+    func request<T: Decodable>(_ endpoint: URL) async throws -> T {
+        let (data, _) = try await URLSession.shared.data(from: endpoint)
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+}
+```
+
+---
+
+# 🔹 2. Cache Layer
+
+### Protocol
+
+```swift
+protocol CacheService {
+    func save<T: Encodable>(_ value: T, forKey key: String)
+    func load<T: Decodable>(_ type: T.Type, forKey key: String) -> T?
+}
+```
+
+### Implementation
+
+```swift
+class UserDefaultsCacheService: CacheService {
+    func save<T>(_ value: T, forKey key: String) where T : Encodable {
+        let data = try? JSONEncoder().encode(value)
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    func load<T>(_ type: T.Type, forKey key: String) -> T? where T : Decodable {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+}
+```
+
+---
+
+# 🔹 3. Repository Layer (Core of Clean Architecture)
+
+👉 Combines **network + cache**
+
+```swift
+struct User: Codable {
+    let id: Int
+    let name: String
+}
+```
+
+### Protocol
+
+```swift
+protocol UserRepository {
+    func fetchUsers() async throws -> [User]
+}
+```
+
+### Implementation
+
+```swift
+class UserRepositoryImpl: UserRepository {
+    private let network: NetworkService
+    private let cache: CacheService
+    
+    init(network: NetworkService, cache: CacheService) {
+        self.network = network
+        self.cache = cache
+    }
+    
+    func fetchUsers() async throws -> [User] {
+        let cacheKey = "users"
+        
+        // 1. Try cache first
+        if let cached: [User] = cache.load([User].self, forKey: cacheKey) {
+            return cached
+        }
+        
+        // 2. Fetch from network
+        let url = URL(string: "https://api.example.com/users")!
+        let users: [User] = try await network.request(url)
+        
+        // 3. Save to cache
+        cache.save(users, forKey: cacheKey)
+        
+        return users
+    }
+}
+```
+
+---
+
+# 🔹 4. ViewModel (MVVM)
+
+```swift
+@MainActor
+class UserViewModel: ObservableObject {
+    @Published var users: [User] = []
+    @Published var isLoading = false
+    
+    private let repository: UserRepository
+    
+    init(repository: UserRepository) {
+        self.repository = repository
+    }
+    
+    func loadUsers() async {
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            users = try await repository.fetchUsers()
+        } catch {
+            print("Error: \(error)")
+        }
+    }
+}
+```
+
+---
+
+# 🔹 5. DI Container (Production Style)
+
+```swift
+class DIContainer {
+    static let shared = DIContainer()
+    
+    private var factories: [String: () -> Any] = [:]
+    
+    func register<T>(_ type: T.Type, factory: @escaping () -> T) {
+        factories["\(type)"] = factory
+    }
+    
+    func resolve<T>(_ type: T.Type) -> T {
+        guard let factory = factories["\(type)"],
+              let service = factory() as? T else {
+            fatalError("Dependency not found: \(type)")
+        }
+        return service
+    }
+}
+```
+
+---
+
+# 🔹 6. Dependency Registration (App Startup)
+
+```swift
+let container = DIContainer.shared
+
+// Services
+container.register(NetworkService.self) {
+    URLSessionNetworkService()
+}
+
+container.register(CacheService.self) {
+    UserDefaultsCacheService()
+}
+
+// Repository
+container.register(UserRepository.self) {
+    UserRepositoryImpl(
+        network: container.resolve(NetworkService.self),
+        cache: container.resolve(CacheService.self)
+    )
+}
+
+// ViewModel
+container.register(UserViewModel.self) {
+    UserViewModel(
+        repository: container.resolve(UserRepository.self)
+    )
+}
+```
+
+---
+
+# 🔹 7. View (SwiftUI Example)
+
+```swift
+struct UserView: View {
+    @StateObject private var viewModel =
+        DIContainer.shared.resolve(UserViewModel.self)
+    
+    var body: some View {
+        List(viewModel.users, id: \.id) {
+            Text($0.name)
+        }
+        .task {
+            await viewModel.loadUsers()
+        }
+    }
+}
+```
+
+---
+
+# 🔥 What Makes This “Senior-Level”?
+
+### ✅ Separation of Concerns
+
+* ViewModel → UI logic
+* Repository → business logic
+* Network/Cache → data sources
+
+---
+
+### ✅ Testability
+
+Mock example:
+
+```swift
+class MockUserRepository: UserRepository {
+    func fetchUsers() async throws -> [User] {
+        return [User(id: 1, name: "Test")]
+    }
+}
+```
+
+Inject:
+
+```swift
+UserViewModel(repository: MockUserRepository())
+```
+
+---
+
+### ✅ Scalability
+
+You can easily add:
+
+* Disk cache (CoreData)
+* API retry logic
+* Pagination
+* Offline mode
+
+---
+
+### ✅ Replaceable Layers
+
+* Swap `UserDefaults` → database
+* Swap `URLSession` → Alamofire
+* No ViewModel change needed ✅
+
+---
+
+# 🔹 Optional: Using Libraries
+
+Instead of manual DI, use:
+
+* **Swinject**
+* **Needle**
+
+---
+
+# 🚀 Interview One-Liner
+
+> “I use DI with MVVM where ViewModels depend on repositories, and repositories abstract multiple data sources like network and cache. Dependencies are injected via a DI container, enabling loose coupling, testability, and scalability.”
+
+---
+
+If you want next level:
+
+* I can add **retry + caching strategy (stale-while-revalidate)**
+* Or build **offline-first architecture like WhatsApp**
+* Or show **system design diagram for interview whiteboard**
+
+
+
