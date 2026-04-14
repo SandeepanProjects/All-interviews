@@ -1,0 +1,136 @@
+Type erasure in Swift is a technique used to **hide the concrete type of a value while still exposing a common interface**. It’s mainly used when working with **protocols that have associated types or `Self` requirements**, which normally *cannot be used directly as types*.
+
+---
+
+## 🚫 The Problem (Why we need it)
+
+In Swift, you **cannot do this**:
+
+```swift
+protocol APIRequest {
+    associatedtype Response
+    func execute() -> Response
+}
+
+let request: APIRequest // ❌ Error
+```
+
+Because `APIRequest` has an **associated type**, Swift doesn’t know what `Response` is at compile time.
+
+---
+
+## ✅ The Solution: Type Erasure
+
+We wrap the protocol in a **concrete type** that hides the underlying implementation.
+
+---
+
+## 🔧 Example: Type Erasure Wrapper
+
+```swift
+class AnyAPIRequest<T>: APIRequest {
+    private let _execute: () -> T
+
+    init<R: APIRequest>(_ request: R) where R.Response == T {
+        self._execute = request.execute
+    }
+
+    func execute() -> T {
+        return _execute()
+    }
+}
+```
+
+---
+
+## 🧠 How it Works
+
+* You **capture the behavior** (`execute`) in a closure
+* Store it inside a concrete type (`AnyAPIRequest`)
+* Now you can use it like a normal type
+
+---
+
+## 🎯 Usage Example
+
+```swift
+struct UserRequest: APIRequest {
+    func execute() -> String {
+        return "User Data"
+    }
+}
+
+let request = AnyAPIRequest(UserRequest())
+let result = request.execute() // "User Data"
+```
+
+---
+
+## 💡 Where Type Erasure is Used in Real iOS Apps
+
+### 1. SwiftUI
+
+* `AnyView` → hides different view types
+
+```swift
+var body: some View {
+    if condition {
+        AnyView(Text("Hello"))
+    } else {
+        AnyView(Image(systemName: "star"))
+    }
+}
+```
+
+---
+
+### 2. Combine Framework
+
+* `AnyPublisher`, `AnyCancellable`
+
+```swift
+func fetch() -> AnyPublisher<String, Error>
+```
+
+---
+
+### 3. Clean Architecture / DI
+
+* When returning protocols from repositories or services
+
+---
+
+## 🧱 Why It's Important (Senior-Level Insight)
+
+Without type erasure:
+
+* You lose **flexibility**
+* You can’t store heterogeneous types in collections
+* You break abstraction layers in **MVVM / Clean Architecture**
+
+With type erasure:
+
+* You enable **dependency inversion**
+* You can build **generic, reusable APIs**
+* You decouple modules (very important in large apps like WhatsApp/Stripe-level apps)
+
+---
+
+## ⚠️ Trade-offs
+
+* Slight performance overhead (due to indirection/closures)
+* More boilerplate code
+* Harder to debug if overused
+
+---
+
+## 🧠 Interview-Ready Answer
+
+> Type erasure in Swift is used to wrap protocols with associated types or Self requirements into a concrete type, allowing them to be used as a general type. It helps in abstraction, especially in architectures like MVVM and when working with frameworks like Combine or SwiftUI.
+
+---
+
+If you want, I can show you:
+
+* A **production-grade AnyPublisher-like implementation**
+* Or how to use type erasure in your **GitHub API / WhatsApp architecture code**
