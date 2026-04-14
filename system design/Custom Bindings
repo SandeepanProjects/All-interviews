@@ -1,0 +1,247 @@
+Custom bindings are where SwiftUI starts to feel **really powerful** 🔥 — this is a **mid → senior level concept**.
+
+---
+
+# 🧠 What is a Custom Binding?
+
+A **custom `Binding`** lets you control:
+
+* how a value is **read**
+* how a value is **written**
+
+Instead of just doing:
+
+```swift
+TextField("Username", text: $username)
+```
+
+You can define your own logic using:
+
+```swift
+Binding(
+    get: { ... },
+    set: { ... }
+)
+```
+
+---
+
+# ⚙️ Syntax
+
+```swift
+Binding<T>(
+    get: { value },
+    set: { newValue in
+        // modify / validate / transform
+    }
+)
+```
+
+---
+
+# 🔥 Example 1: Trim Spaces Automatically
+
+```swift
+@State private var username = ""
+
+var body: some View {
+    TextField(
+        "Username",
+        text: Binding(
+            get: { username },
+            set: { newValue in
+                username = newValue.trimmingCharacters(in: .whitespaces)
+            }
+        )
+    )
+}
+```
+
+### ✅ What happens:
+
+* User types `"  john  "`
+* Stored value becomes `"john"`
+
+👉 You just added **input sanitization at UI level**
+
+---
+
+# 🔥 Example 2: Uppercase Transformation
+
+```swift
+TextField(
+    "Username",
+    text: Binding(
+        get: { username },
+        set: { username = $0.uppercased() }
+    )
+)
+```
+
+👉 Input automatically becomes:
+
+```
+john → JOHN
+```
+
+---
+
+# 🔥 Example 3: Validation While Typing
+
+```swift
+@State private var password = ""
+@State private var error: String?
+
+var body: some View {
+    TextField(
+        "Password",
+        text: Binding(
+            get: { password },
+            set: { newValue in
+                password = newValue
+                
+                if newValue.count < 6 {
+                    error = "Too short"
+                } else {
+                    error = nil
+                }
+            }
+        )
+    )
+}
+```
+
+👉 You’re doing **real-time validation**
+
+---
+
+# 🔥 Example 4: Optional → Non-Optional Binding
+
+Very common in production 👇
+
+```swift
+@State private var name: String? = nil
+
+var body: some View {
+    TextField(
+        "Name",
+        text: Binding(
+            get: { name ?? "" },
+            set: { name = $0 }
+        )
+    )
+}
+```
+
+👉 Converts:
+
+* `String?` → `String` (required by TextField)
+
+---
+
+# 🔥 Example 5: Derived State (Advanced ⚡)
+
+```swift
+@State private var isOn = false
+
+var body: some View {
+    Toggle(
+        "Toggle",
+        isOn: Binding(
+            get: { isOn },
+            set: { newValue in
+                print("Changed to \(newValue)")
+                isOn = newValue
+            }
+        )
+    )
+}
+```
+
+👉 Add logging, analytics, side effects
+
+---
+
+# 🧠 When to Use Custom Bindings
+
+Use them when you need:
+
+### ✅ Input transformation
+
+* trimming
+* formatting (phone, email)
+
+### ✅ Validation
+
+* enforce rules while typing
+
+### ✅ Side effects
+
+* logging
+* analytics
+* triggering API calls (careful)
+
+### ✅ Data adaptation
+
+* optional → non-optional
+* mapping between models
+
+---
+
+# ⚠️ Common Mistakes
+
+### ❌ Infinite loops
+
+Don’t mutate in a way that keeps triggering itself endlessly
+
+---
+
+### ❌ Heavy logic inside `set`
+
+Avoid:
+
+* API calls
+* expensive computation
+
+👉 Keep it lightweight
+
+---
+
+# 🚀 Staff-Level Pattern (Reusable Binding)
+
+Instead of repeating logic:
+
+```swift
+extension Binding {
+    func trimmed() -> Binding<String> where Value == String {
+        Binding<String>(
+            get: { self.wrappedValue },
+            set: { self.wrappedValue = $0.trimmingCharacters(in: .whitespaces) }
+        )
+    }
+}
+```
+
+### Usage:
+
+```swift
+TextField("Username", text: $username.trimmed())
+```
+
+🔥 Clean + reusable + production-grade
+
+---
+
+# 🧠 Interview Answer (Short)
+
+> A custom binding allows you to define custom get and set logic for a value, enabling transformation, validation, and side effects during state updates.
+
+---
+
+If you want next level, I can show:
+
+* 🔥 Form validation system using bindings
+* 🔥 Combine + Binding integration
+* 🔥 SwiftUI form engine (like real apps)
+
+Just say 👍
